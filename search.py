@@ -22,7 +22,9 @@ from game import Actions
 from game import Directions
 from util import foodGridtoDic
 
-
+import itertools
+from itertools import product
+from game import Grid
 class SearchProblem:
     """
     This class outlines the structure of a search problem, but doesn't implement
@@ -127,9 +129,67 @@ def foodHeuristic(state, problem):
     problem.heuristicInfo['wallCount']
     """
     "*** YOUR CODE HERE for task1 ***"
+     # Unpack the state into Pacman's position and the food grid.
+    position, foodGrid = state
+    # Convert the food grid into a list of food coordinates.
+    foodList = foodGrid.asList()
+
+    if not foodList:
+        return 0
+
+    # Initialize the distance to the closest food to infinity.
+    distanceToClosestFood = float('inf')
+    # Loop through each food item to find the distance from Pacman's position to the food.
+    # Update distanceToClosestFood with the minimum of these distances.
+    for food in foodList:
+        distance = realdistance(position, food, problem)
+        if distance < distanceToClosestFood:
+            distanceToClosestFood = distance
+
+    # Calculate the maximum distance between any two food points
+    maxDistanceBetweenFoods = 0
+    for food1 in foodList:
+        for food2 in foodList:
+            distance = realdistance(food1, food2, problem)
+            if distance > maxDistanceBetweenFoods:
+                maxDistanceBetweenFoods = distance
+    
+    if distanceToClosestFood == float('inf'):
+        distanceToClosestFood = 0
+
+    return maxDistanceBetweenFoods - distanceToClosestFood                                                               
+
+
+
 
     # comment the below line after you implement the algorithm
     util.raiseNotDefined()
+
+def getfoodgrid(foodPosition, width, height):
+    """
+    Create a single-food grid based on the given position.
+    """
+    foodGrid = Grid(width, height, False)
+    x, y = foodPosition
+    # Set the grid cell at (x, y) to True, indicating food presence
+    foodGrid[x][y] = True
+    return foodGrid
+
+def realdistance(startPosition, endPosition, problem):
+        """
+        Returns the real distance(not Manhattan Distance ) between two points, caching the result.
+        """
+        # Use cached distance if available
+        key = (startPosition, endPosition)
+        if key not in problem.heuristicInfo:
+            singleFoodGrid = getfoodgrid(endPosition, problem.walls.width, problem.walls.height)
+            singleFoodProblem = SingleFoodSearchProblem(pos=startPosition, food=singleFoodGrid, walls=problem.walls)
+            # A* search to find the distance
+            problem.heuristicInfo[key] = len(astar(singleFoodProblem))
+        
+        #Return the cached distance, defaulting to 0 if not found
+        return problem.heuristicInfo.get(key, 0)
+        
 
 
 class MAPFProblem(SearchProblem):
@@ -156,6 +216,25 @@ class MAPFProblem(SearchProblem):
     def isGoalState(self, state):
         "Return if the state is the goal state"
         "*** YOUR CODE HERE for task2 ***"
+        # Extract pacmanPositions and foodGrid from the state
+        pacmanPositions, foodGrid = state
+        for name in pacmanPositions.keys():         
+            for x in range(foodGrid.width):
+                for y in range(foodGrid.height):
+                    if foodGrid[x][y] == name:  # If food designated for a Pacman is found
+                        return False  # Not all food has been consumed
+
+    # Next, check if all cells are False, indicating no food left at all.
+        for x in range(foodGrid.width):
+            for y in range(foodGrid.height):
+                if foodGrid[x][y] != False:  # If any cell is not False, food is present
+                    return False  # Not all food has been consumed
+
+    # If all designated food is consumed and no cell has food, the goal state is reached.
+        return True
+
+        
+    
 
         # comment the below line after you implement the function
         util.raiseNotDefined()
@@ -175,9 +254,67 @@ class MAPFProblem(SearchProblem):
 
         """
         "*** YOUR CODE HERE for task2 ***"
+        # Initialize an empty list to hold successor states.
+        successors = []
+        pacmanPositions, foodGrid = state
+        # Define possible directions a pacman can move.
+        directions = [Directions.NORTH, Directions.SOUTH, Directions.EAST, Directions.WEST, Directions.STOP]
+        # Initialize a dictionary to track possible movements for each pacman.
+        movement = {pacman: [] for pacman in pacmanPositions}
+        for pacman, pos in pacmanPositions.items():
+                # Check each possible direction of movement.
+                for direction in directions:
+                    # Calculate the next position based on the current direction.
+                    dx, dy = Actions.directionToVector(direction)
+                    next_x, next_y = int(pos[0] + dx), int(pos[1] + dy)
 
+                     # Check if the next position does not hit a wall.
+                    if not self.walls[next_x][next_y]:
+                        # If the move is valid, add it to the possible movements.
+                        next_move = (next_x, next_y)
+                        movement[pacman].append((direction, next_move))
+
+        all_posible = list(product(*movement.values()))
+        
+        
+        # Evaluate each combination of moves.
+        for moves in all_posible:
+            movement_dict = {}
+            nextPositions = pacmanPositions.copy()
+            next_FoodGrid = foodGrid.copy()
+            # Create a reverse mapping from positions to pacman names.
+            dic_mapping = {pos: pacman for pacman, pos in pacmanPositions.items()}
+            is_swap = False
+            
+            # Check each move in the current combination.
+            for pacman, (direction, next_move) in zip(pacmanPositions.keys(), moves):
+                # Detect potential position swaps.
+                if next_move in pacmanPositions.values() and dic_mapping[next_move] != pacman:
+                    int_pos = pacmanPositions[pacman]
+                    if pacmanPositions[dic_mapping[next_move]] == int_pos:
+                        is_swap = True
+                        break
+
+                # Update the action and position for the current pacman.
+                movement_dict[pacman] = direction
+                if next_FoodGrid[next_move[0]][next_move[1]] == pacman:
+                    # Consume the food at the new position, if applicable.
+                    next_FoodGrid[next_move[0]][next_move[1]] = False
+                nextPositions[pacman] = next_move
+
+            # Add the new state to the successors list if no swap conflict was detected.
+            if not is_swap:
+                successors.append(((nextPositions, next_FoodGrid), movement_dict, 1))
+
+        return successors
+                
         # comment the below line after you implement the function
         util.raiseNotDefined()
+    
+    
+
+    
+
 
 
 def conflictBasedSearch(problem: MAPFProblem):
@@ -188,9 +325,7 @@ def conflictBasedSearch(problem: MAPFProblem):
 
     """
     "*** YOUR CODE HERE for task3 ***"
-
-    # comment the below line after you implement the function
-    util.raiseNotDefined()
+    
 
 
 "###WARNING: Altering the following functions is STRICTLY PROHIBITED. Failure to comply may result in a grade of 0 for Assignment 1.###"
